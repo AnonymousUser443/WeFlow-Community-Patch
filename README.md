@@ -1,6 +1,6 @@
 # WeFlow Community Patch
 
-面向 WeFlow 5.0.0 的社区热修复，解决 2026 年 7 月底后聊天记录导出失效，以及私聊页面首次点击“导出”时卡在“正在准备导出模块”的问题。
+面向 WeFlow 5.0.0 的社区热修复，解决 2026 年 7 月底后聊天记录导出失效、私聊页面首次点击“导出”时卡在“正在准备导出模块”，以及兼容导出中的 `Silk 解码失败`。
 
 > 本仓库不是 WeFlow 官方仓库。补丁基于上游项目 [hicccc77/WeFlow](https://github.com/hicccc77/WeFlow)，仅用于非商业的社区修复与交流。
 
@@ -11,17 +11,20 @@
 - 批量导出中检测到不兼容后，后续会话直接使用 WCDB，避免每个会话都等待失败。
 - 修复私聊页面冷启动后首次点击“导出”卡死：把一次性 `CustomEvent` 改为可持久消费的 Zustand 请求。
 - 导出上下文显式传递账号目录，降低多账号或非默认目录下读错路径的风险。
+- Export Worker 显式接收 Electron 的 `process.resourcesPath` 和 `app.getAppPath()`，使 `silk-wasm` 能从真实的 `app.asar.unpacked` 路径加载 WASM。
+
+Silk 问题的诊断过程与通用经验见 [Electron Worker 中的 Silk WASM 路径排障](docs/SILK-EXPORT-WORKER-PATH.md)。
 
 ## 直接安装（推荐）
 
 适用环境：Windows 10/11 x64、WeFlow 5.0.0、微信 4.x。
 
 1. 退出 WeFlow，包括系统托盘中的后台进程。
-2. 从 [最新 Release](../../releases/latest) 下载 `WeFlow-5.0.0-Community-Hotfix.1-Setup.exe`。
+2. 从 [最新 Release](../../releases/latest) 下载 `WeFlow-5.0.0-Community-Hotfix.2-Setup.exe`。
 3. 使用仓库中的校验脚本核对安装包：
 
    ```powershell
-   .\scripts\Verify-Installer.ps1 -Installer "$env:USERPROFILE\Downloads\WeFlow-5.0.0-Community-Hotfix.1-Setup.exe"
+   .\scripts\Verify-Installer.ps1 -Installer "$env:USERPROFILE\Downloads\WeFlow-5.0.0-Community-Hotfix.2-Setup.exe"
    ```
 
 4. 运行安装包，按提示覆盖安装。
@@ -30,7 +33,7 @@
 安装包 SHA-256：
 
 ```text
-FD93BED91FC30086158ECB6CB8EC66B6CFEB9BAEFB0CF516B35B26FB9CA655E5
+CD334F4DF75B8EB2D8473B77198E1992A90D5D01508327EC7B8B38A5B629A7C6
 ```
 
 ## 给开发者：应用源码补丁
@@ -65,6 +68,8 @@ npm run build
 - WeLive 过期错误自动进入 WCDB 回退路径
 - 模拟原生握手 `-101` 自动进入 WCDB 回退路径
 - 私聊导出请求可在懒加载页面挂载前保存，并在挂载后消费
+- 20 个真实语音样本均为标准 `#!SILK_V3`，且可由同版 `silk-wasm` 成功解码
+- 打包后的 Worker 使用真实 Electron resources/app 路径，`silk.wasm` 存在于 `app.asar.unpacked`
 - 标准 NSIS 安装包生成成功
 
 ## Windows Defender 提示

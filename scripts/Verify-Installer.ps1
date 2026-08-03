@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedSha256 = 'FD93BED91FC30086158ECB6CB8EC66B6CFEB9BAEFB0CF516B35B26FB9CA655E5'
+$expectedSha256 = 'CD334F4DF75B8EB2D8473B77198E1992A90D5D01508327EC7B8B38A5B629A7C6'
 
 $resolvedInstaller = (Resolve-Path -LiteralPath $Installer).Path
 $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedInstaller).Hash

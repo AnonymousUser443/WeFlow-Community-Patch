@@ -1,8 +1,38 @@
 diff --git a/electron/exportWorker.ts b/electron/exportWorker.ts
-index 63ac365..17f02f5 100644
+index 63ac365..f10d74c 100644
 --- a/electron/exportWorker.ts
 +++ b/electron/exportWorker.ts
-@@ -145,8 +145,8 @@ if (config.userDataPath) {
+@@ -17,6 +17,8 @@ interface ExportWorkerConfig {
+   imageXorKey?: unknown
+   imageAesKey?: string
+   resourcesPath?: string
++  electronResourcesPath?: string
++  appPath?: string
+   userDataPath?: string
+   cachePath?: string
+   emojiCacheDir?: string
+@@ -27,6 +29,20 @@ interface ExportWorkerConfig {
+ }
+ 
+ const config = workerData as ExportWorkerConfig
++
++const resolveElectronRuntimePaths = (): { resourcesPath: string; appPath: string } => {
++  const path = require('path') as typeof import('path')
++  const legacyResourcesRoot = config.resourcesPath
++    ? path.dirname(config.resourcesPath)
++    : __dirname
++  const resourcesPath = String(config.electronResourcesPath || legacyResourcesRoot)
++  const appPath = String(
++    config.appPath ||
++    (config.isPackaged ? path.join(resourcesPath, 'app.asar') : legacyResourcesRoot)
++  )
++  return { resourcesPath, appPath }
++}
++
+ const controlState = {
+   pauseRequested: false,
+   stopRequested: false
+@@ -145,8 +161,8 @@ if (config.userDataPath) {
  }
  process.env.WEFLOW_PROJECT_NAME = process.env.WEFLOW_PROJECT_NAME || 'WeFlow'
  
@@ -13,7 +43,7 @@ index 63ac365..17f02f5 100644
  const shouldUseWeliveEngine = () => config.mode !== 'contacts'
  
  const normalizeImageXorKey = (value: unknown): string | number | undefined => {
-@@ -253,10 +253,25 @@ const collectWeliveErrorText = (result: any): string => {
+@@ -253,10 +269,25 @@ const collectWeliveErrorText = (result: any): string => {
      .join('\n')
  }
  
@@ -42,7 +72,26 @@ index 63ac365..17f02f5 100644
  }
  
  async function runWeliveEngine() {
-@@ -408,8 +423,17 @@ async function runWeliveEngine() {
+@@ -275,6 +306,7 @@ async function runWeliveEngine() {
+     : (Array.isArray(config.sessionIds) ? config.sessionIds : []).map((id) => String(id || '').trim()).filter(Boolean)
+   const outputDir = String(config.outputDir || (config.outputPath ? path.dirname(config.outputPath) : '') || '').trim()
+   const rawRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weflow-welive-raw-'))
++  const electronRuntimePaths = resolveElectronRuntimePaths()
+ 
+   exportService.setRuntimeConfig({
+     dbPath: config.dbPath,
+@@ -283,8 +315,8 @@ async function runWeliveEngine() {
+     accountDir: config.accountDir,
+     imageXorKey: config.imageXorKey,
+     imageAesKey: config.imageAesKey,
+-    resourcesPath: config.resourcesPath,
+-    appPath: config.resourcesPath ? path.dirname(config.resourcesPath) : __dirname,
++    resourcesPath: electronRuntimePaths.resourcesPath,
++    appPath: electronRuntimePaths.appPath,
+     isPackaged: config.isPackaged
+   })
+   wcdbService.setPaths(String(config.resourcesPath || ''), String(config.userDataPath || ''))
+@@ -408,8 +440,17 @@ async function runWeliveEngine() {
      })
  
      if (!result.success) {
@@ -61,23 +110,38 @@ index 63ac365..17f02f5 100644
        continue
      }
      rawSessionOutputPaths[sessionId] = String(result.rawSessionOutputPaths?.[sessionId] || result.sessionOutputPaths?.[sessionId] || '')
-@@ -494,6 +518,7 @@ async function runLegacyEngine() {
+@@ -490,14 +531,16 @@ async function runLegacyEngine() {
+ 
+   wcdbService.setPaths(config.resourcesPath || '', config.userDataPath || '')
+   wcdbService.setLogEnabled(config.logEnabled === true)
++  const electronRuntimePaths = resolveElectronRuntimePaths()
+   exportService.setRuntimeConfig({
      dbPath: config.dbPath,
      decryptKey: config.decryptKey,
      myWxid: config.myWxid,
 +    accountDir: config.accountDir,
      imageXorKey: config.imageXorKey,
      imageAesKey: config.imageAesKey,
-     resourcesPath: config.resourcesPath,
-@@ -522,6 +547,7 @@ async function runLegacyEngine() {
+-    resourcesPath: config.resourcesPath,
+-    appPath: config.resourcesPath ? require('path').dirname(config.resourcesPath) : __dirname,
++    resourcesPath: electronRuntimePaths.resourcesPath,
++    appPath: electronRuntimePaths.appPath,
+     isPackaged: config.isPackaged
+   })
+ 
+@@ -522,8 +565,9 @@ async function runLegacyEngine() {
        dbPath: config.dbPath,
        decryptKey: config.decryptKey,
        myWxid: config.myWxid,
+-      resourcesPath: config.resourcesPath,
+-      appPath: config.resourcesPath ? require('path').dirname(config.resourcesPath) : __dirname,
 +      accountDir: config.accountDir,
-       resourcesPath: config.resourcesPath,
-       appPath: config.resourcesPath ? require('path').dirname(config.resourcesPath) : __dirname,
++      resourcesPath: electronRuntimePaths.resourcesPath,
++      appPath: electronRuntimePaths.appPath,
        isPackaged: config.isPackaged
-@@ -574,7 +600,8 @@ async function runLegacyEngine() {
+     })
+     result = await contactExportService.exportContacts(
+@@ -574,7 +618,8 @@ async function runLegacyEngine() {
  async function run() {
    if (shouldUseWeliveEngine()) {
      const result = await runWeliveEngine()
@@ -87,7 +151,7 @@ index 63ac365..17f02f5 100644
        flushProgress()
        flushCreatedPaths()
        parentPort?.postMessage({
-@@ -588,7 +615,7 @@ async function run() {
+@@ -588,7 +633,7 @@ async function run() {
        current: 0,
        total: Array.isArray(config.sessionIds) ? config.sessionIds.length : 1,
        phase: 'preparing',
@@ -96,6 +160,37 @@ index 63ac365..17f02f5 100644
      })
      flushProgress()
      flushCreatedPaths()
+diff --git a/electron/main.ts b/electron/main.ts
+index 687516b..7e58fb4 100644
+--- a/electron/main.ts
++++ b/electron/main.ts
+@@ -3640,6 +3640,8 @@ function registerIpcHandlers() {
+             imageXorKey: imageKeys.xorKey,
+             imageAesKey: imageKeys.aesKey,
+             resourcesPath,
++            electronResourcesPath: process.resourcesPath,
++            appPath: app.getAppPath(),
+             userDataPath,
+             cachePath,
+             emojiCacheDir,
+@@ -3780,6 +3782,8 @@ function registerIpcHandlers() {
+             imageXorKey: imageKeys.xorKey,
+             imageAesKey: imageKeys.aesKey,
+             resourcesPath: app.isPackaged ? join(process.resourcesPath, 'resources') : join(app.getAppPath(), 'resources'),
++            electronResourcesPath: process.resourcesPath,
++            appPath: app.getAppPath(),
+             userDataPath: app.getPath('userData'),
+             cachePath: singleCachePath,
+             emojiCacheDir: singleEmojiCacheDir,
+@@ -3850,6 +3854,8 @@ function registerIpcHandlers() {
+             decryptKey: String(cfg.get('decryptKey') || '').trim(),
+             myWxid: String(cfg.getMyWxidCleaned() || '').trim(),
+             resourcesPath: app.isPackaged ? join(process.resourcesPath, 'resources') : join(app.getAppPath(), 'resources'),
++            electronResourcesPath: process.resourcesPath,
++            appPath: app.getAppPath(),
+             userDataPath: app.getPath('userData'),
+             logEnabled: cfg.get('logEnabled'),
+             isPackaged: app.isPackaged
 diff --git a/electron/services/chatService.ts b/electron/services/chatService.ts
 index 64b10b9..b60390e 100644
 --- a/electron/services/chatService.ts
