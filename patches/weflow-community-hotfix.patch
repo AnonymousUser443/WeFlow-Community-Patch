@@ -1,0 +1,259 @@
+diff --git a/electron/exportWorker.ts b/electron/exportWorker.ts
+index 63ac365..17f02f5 100644
+--- a/electron/exportWorker.ts
++++ b/electron/exportWorker.ts
+@@ -145,8 +145,8 @@ if (config.userDataPath) {
+ }
+ process.env.WEFLOW_PROJECT_NAME = process.env.WEFLOW_PROJECT_NAME || 'WeFlow'
+ 
+-// 消息导出强制走 WeLive 引擎（不提供 legacy 回退开关）；
+-// 仅联系人导出仍由 worker 内置流程处理。
++// 消息导出优先走 WeLive 引擎；引擎过期、握手不兼容或原生崩溃时，
++// 自动回退到 worker 内置的 WCDB 兼容导出流程。
+ const shouldUseWeliveEngine = () => config.mode !== 'contacts'
+ 
+ const normalizeImageXorKey = (value: unknown): string | number | undefined => {
+@@ -253,10 +253,25 @@ const collectWeliveErrorText = (result: any): string => {
+     .join('\n')
+ }
+ 
+-const isWeliveNativeCrashResult = (result: any): boolean => {
+-  if (!result || result.success) return false
++type WeliveFallbackReason = 'build-expired' | 'native-transport' | 'native-crash' | 'engine-missing'
++
++const getWeliveFallbackReason = (result: any): WeliveFallbackReason | null => {
++  if (!result || result.success) return null
+   const text = collectWeliveErrorText(result)
+-  return /3221225477|0x?c0000005|-1073741819/i.test(text)
++  if (/this build has expired/i.test(text)) return 'build-expired'
++  if (/native transport challenge failed|server proof mismatch|finish failed with status|finish proof mismatch/i.test(text)) {
++    return 'native-transport'
++  }
++  if (/3221225477|0x?c0000005|-1073741819/i.test(text)) return 'native-crash'
++  if (/未找到 WeLive 导出引擎|\bENOENT\b/i.test(text)) return 'engine-missing'
++  return null
++}
++
++const getWeliveFallbackLabel = (reason: WeliveFallbackReason): string => {
++  if (reason === 'build-expired') return 'WeLive 导出引擎已过期，正在切换兼容导出引擎'
++  if (reason === 'native-transport') return 'WeLive 导出引擎与当前环境不兼容，正在切换兼容导出引擎'
++  if (reason === 'engine-missing') return '未找到 WeLive 导出引擎，正在切换兼容导出引擎'
++  return 'WeLive 导出引擎异常退出，正在切换兼容导出引擎'
+ }
+ 
+ async function runWeliveEngine() {
+@@ -408,8 +423,17 @@ async function runWeliveEngine() {
+     })
+ 
+     if (!result.success) {
++      const errorText = String(result.failedSessionErrors?.[sessionId] || result.error || 'WeLive export failed')
+       failedSessionIds.push(sessionId)
+-      failedSessionErrors[sessionId] = String(result.failedSessionErrors?.[sessionId] || result.error || 'WeLive export failed')
++      failedSessionErrors[sessionId] = errorText
++      if (getWeliveFallbackReason(result)) {
++        for (let remainingIndex = index + 1; remainingIndex < sessionIds.length; remainingIndex++) {
++          const remainingSessionId = sessionIds[remainingIndex]
++          failedSessionIds.push(remainingSessionId)
++          failedSessionErrors[remainingSessionId] = errorText
++        }
++        break
++      }
+       continue
+     }
+     rawSessionOutputPaths[sessionId] = String(result.rawSessionOutputPaths?.[sessionId] || result.sessionOutputPaths?.[sessionId] || '')
+@@ -494,6 +518,7 @@ async function runLegacyEngine() {
+     dbPath: config.dbPath,
+     decryptKey: config.decryptKey,
+     myWxid: config.myWxid,
++    accountDir: config.accountDir,
+     imageXorKey: config.imageXorKey,
+     imageAesKey: config.imageAesKey,
+     resourcesPath: config.resourcesPath,
+@@ -522,6 +547,7 @@ async function runLegacyEngine() {
+       dbPath: config.dbPath,
+       decryptKey: config.decryptKey,
+       myWxid: config.myWxid,
++      accountDir: config.accountDir,
+       resourcesPath: config.resourcesPath,
+       appPath: config.resourcesPath ? require('path').dirname(config.resourcesPath) : __dirname,
+       isPackaged: config.isPackaged
+@@ -574,7 +600,8 @@ async function runLegacyEngine() {
+ async function run() {
+   if (shouldUseWeliveEngine()) {
+     const result = await runWeliveEngine()
+-    if (!isWeliveNativeCrashResult(result)) {
++    const fallbackReason = getWeliveFallbackReason(result)
++    if (!fallbackReason) {
+       flushProgress()
+       flushCreatedPaths()
+       parentPort?.postMessage({
+@@ -588,7 +615,7 @@ async function run() {
+       current: 0,
+       total: Array.isArray(config.sessionIds) ? config.sessionIds.length : 1,
+       phase: 'preparing',
+-      phaseLabel: 'WeLive 导出引擎异常退出，正在切换兼容导出引擎'
++      phaseLabel: getWeliveFallbackLabel(fallbackReason)
+     })
+     flushProgress()
+     flushCreatedPaths()
+diff --git a/electron/services/chatService.ts b/electron/services/chatService.ts
+index 64b10b9..b60390e 100644
+--- a/electron/services/chatService.ts
++++ b/electron/services/chatService.ts
+@@ -358,7 +358,7 @@ const FRIEND_EXCLUDE_USERNAMES = new Set(['medianote', 'floatbottle', 'qmessage'
+ 
+ class ChatService {
+   private configService: ConfigService
+-  private runtimeConfig?: { dbPath?: string; decryptKey?: string; myWxid?: string }
++  private runtimeConfig?: { dbPath?: string; decryptKey?: string; myWxid?: string; accountDir?: string }
+   private connected = false
+   private readonly dbMonitorListeners = new Set<(type: string, json: string) => void>()
+   private messageCursors: Map<string, { cursor: number; fetched: number; batchSize: number; startTime?: number; endTime?: number; ascending?: boolean; bufferedMessages?: any[] }> = new Map()
+@@ -471,7 +471,7 @@ class ChatService {
+     this.voiceTranscriptCache = new LRUCache(1000) // 最多缓存1000条转写记录
+   }
+ 
+-  setRuntimeConfig(config: { dbPath?: string; decryptKey?: string; myWxid?: string; resourcesPath?: string; appPath?: string; isPackaged?: boolean }): void {
++  setRuntimeConfig(config: { dbPath?: string; decryptKey?: string; myWxid?: string; accountDir?: string; resourcesPath?: string; appPath?: string; isPackaged?: boolean }): void {
+     this.runtimeConfig = config
+   }
+ 
+@@ -603,7 +603,8 @@ class ChatService {
+       }
+ 
+       // 使用 ConfigService 统一解析账号目录
+-      const accountDir = this.configService.getAccountDir(dbPath, wxid)
++      const configuredAccountDir = String(this.runtimeConfig?.accountDir || '').trim()
++      const accountDir = configuredAccountDir || this.configService.getAccountDir(dbPath, wxid)
+       if (!accountDir) {
+         return { success: false, error: '未找到账号目录，请检查数据库路径和微信ID配置' }
+       }
+diff --git a/electron/services/export/core/ExportContext.ts b/electron/services/export/core/ExportContext.ts
+index 1ada48f..cb83889 100644
+--- a/electron/services/export/core/ExportContext.ts
++++ b/electron/services/export/core/ExportContext.ts
+@@ -102,6 +102,7 @@ export class ExportContext {
+           dbPath: config?.dbPath,
+           decryptKey: config?.decryptKey,
+           myWxid: config?.myWxid,
++          accountDir: config?.accountDir,
+           resourcesPath: config?.resourcesPath,
+           appPath: config?.appPath,
+           isPackaged: config?.isPackaged
+@@ -1345,7 +1346,7 @@ export class ExportContext {
+         if (!decryptKey) return { success: false, error: '请先在设置页面配置解密密钥' }
+ 
+         const cleanedWxid = this.cleanAccountDirName(wxid);
+-        const accountDir = this.configService.getAccountDir(dbPath, wxid);
++        const accountDir = this.getConfiguredAccountDir();
+         if (!accountDir) return { success: false, error: '无法找到账号目录' }
+ 
+         const ok = await wcdbService.open(accountDir, decryptKey);
+diff --git a/src/App.tsx b/src/App.tsx
+index f28a9b2..59ff9b7 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -6,6 +6,7 @@ import RouteGuard from './components/RouteGuard'
+ import HomePage from './pages/HomePage'
+ 
+ import { useAppStore } from './stores/appStore'
++import { useExportTaskStore } from './stores/exportTaskStore'
+ import { themes, useThemeStore, type ThemeId, type ThemeMode } from './stores/themeStore'
+ import * as configService from './services/config'
+ import * as cloudControl from './services/cloudControl'
+@@ -95,6 +96,7 @@ function App() {
+     ? settingsRouteState?.backgroundLocation ?? settingsBackgroundRef.current
+     : location
+   const isExportRoute = routeLocation.pathname === '/export'
++  const pendingSingleExport = useExportTaskStore(state => state.pendingSingleExport)
+   // Export 模块按需挂载：首次进入导出页，或存在启用的自动化任务（调度器在导出页内）时才挂载
+   const [exportMounted, setExportMounted] = useState(false)
+   const [themeHydrated, setThemeHydrated] = useState(false)
+@@ -134,6 +136,10 @@ function App() {
+     if (isExportRoute && !exportMounted) setExportMounted(true)
+   }, [isExportRoute, exportMounted])
+ 
++  useEffect(() => {
++    if (pendingSingleExport && !exportMounted) setExportMounted(true)
++  }, [exportMounted, pendingSingleExport])
++
+   // 存在启用的自动化导出任务时，即使未访问导出页也需挂载（30s 调度器运行在导出页内）
+   useEffect(() => {
+     if (exportMounted || isStandaloneWindow) return
+diff --git a/src/pages/ChatPage.tsx b/src/pages/ChatPage.tsx
+index 5e8fad5..f34e306 100644
+--- a/src/pages/ChatPage.tsx
++++ b/src/pages/ChatPage.tsx
+@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
+ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+ import { useShallow } from 'zustand/react/shallow'
+ import { useChatStore } from '../stores/chatStore'
++import { useExportTaskStore } from '../stores/exportTaskStore'
+ import { useBatchTranscribeStore, type BatchVoiceTaskType } from '../stores/batchTranscribeStore'
+ import { useBatchImageDecryptStore } from '../stores/batchImageDecryptStore'
+ import type { ChatRecordItem, ChatSession, Message } from '../types/models'
+@@ -26,7 +27,6 @@ import {
+   updateBackgroundTask
+ } from '../services/backgroundTaskMonitor'
+ import {
+-  emitOpenSingleExport,
+   onExportSessionStatus,
+   onSingleExportDialogStatus,
+   requestExportSessionStatus
+@@ -6696,8 +6696,8 @@ function ChatPage(props: ChatPageProps) {
+     if (!currentSessionId) return
+     if (inProgressExportSessionIds.has(currentSessionId) || isPreparingExportDialog) return
+ 
+-    const requestId = `chat-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+     const sessionName = displayNameOrFallback(currentSessionId, currentSession?.displayName, currentSession?.username)
++    const requestId = useExportTaskStore.getState().requestSingleExport(currentSessionId, sessionName)
+     pendingExportRequestIdRef.current = requestId
+     setIsPreparingExportDialog(true)
+     setExportPrepareHint('')
+@@ -6705,11 +6705,6 @@ function ChatPage(props: ChatPageProps) {
+       window.clearTimeout(exportPrepareLongWaitTimerRef.current)
+       exportPrepareLongWaitTimerRef.current = null
+     }
+-    emitOpenSingleExport({
+-      sessionId: currentSessionId,
+-      sessionName,
+-      requestId
+-    })
+   }, [currentSession, currentSessionId, inProgressExportSessionIds, isPreparingExportDialog])
+ 
+   const handleTriggerSessionInsight = useCallback(async () => {
+diff --git a/src/pages/Export/ExportPage.tsx b/src/pages/Export/ExportPage.tsx
+index 8c2bf16..529d45d 100644
+--- a/src/pages/Export/ExportPage.tsx
++++ b/src/pages/Export/ExportPage.tsx
+@@ -29,6 +29,7 @@ import type { TextExportFormat } from './types'
+ import { getSelectionScopeFromRows, resolveScopeDisplayNames } from './utils/session'
+ import { serializeExportDateRangeConfig } from '../../utils/exportDateRange'
+ import { displayNameOrFallback, pickDisplayName } from '../../utils/displayName'
++import { useExportTaskStore } from '../../stores/exportTaskStore'
+ import {
+   emitSingleExportDialogStatus,
+   onOpenSingleExport,
+@@ -47,6 +48,8 @@ function ExportPage() {
+   const [draftAutomationPayload, setDraftAutomationPayload] = useState<any>(null)
+   const [pendingSingleExportRequest, setPendingSingleExportRequest] = useState<OpenSingleExportPayload | null>(null)
+   const [metricsMapForSort, setMetricsMapForSort] = useState<Record<string, any>>({})
++  const pendingStoredSingleExport = useExportTaskStore(state => state.pendingSingleExport)
++  const consumeStoredSingleExport = useExportTaskStore(state => state.consumeSingleExport)
+ 
+   const { 
+     isLoaded: isConfigLoaded,
+@@ -279,6 +282,13 @@ function ExportPage() {
+     return onOpenSingleExport(handleOpenSingleExportRequest)
+   }, [handleOpenSingleExportRequest])
+ 
++  useEffect(() => {
++    if (!pendingStoredSingleExport) return
++    const request = consumeStoredSingleExport()
++    if (!request) return
++    handleOpenSingleExportRequest(request)
++  }, [consumeStoredSingleExport, handleOpenSingleExportRequest, pendingStoredSingleExport])
++
+   useEffect(() => {
+     if (!isConfigLoaded || !pendingSingleExportRequest) return
+     setPendingSingleExportRequest(null)

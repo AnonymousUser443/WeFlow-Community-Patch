@@ -1,0 +1,6 @@
+*.exe
+*.bak
+*.log
+.codewhale/
+.DS_Store
+Thumbs.db
