@@ -83,6 +83,8 @@ xor  eax, eax
 .\scripts\Patch-WcdbApiExpiry.ps1 -DllPath "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
 ```
 
+也可以直接使用仓库提供的已修补二进制 `binaries/wcdb_api.dll`（SHA-256 `1536606B...93D0`），详见 [binaries/README.md](../binaries/README.md)。
+
 脚本特性：
 
 - 按字节签名定位，不依赖固定文件偏移；

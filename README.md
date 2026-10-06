@@ -25,6 +25,14 @@ WeFlow 随包分发的原生库 `resources/resources/wcdb/win32/x64/wcdb_api.dll
 .\scripts\Patch-WcdbApiExpiry.ps1 -DllPath "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
 ```
 
+**方式二：直接使用本仓库提供的已修补二进制**（见 [binaries/](binaries/README.md)，SHA-256 `1536...93D0`）：
+
+```powershell
+$dll = "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
+Copy-Item -LiteralPath $dll -Destination "$dll.bak-expiry" -Force
+Copy-Item -LiteralPath .\binaries\wcdb_api.dll -Destination $dll -Force
+```
+
 原理、验证方法与注意事项见 [原生库构建过期开关的诊断与修补](docs/NATIVE-EXPIRY-GATE.md)。
 
 > 重装、修复安装或升级 WeFlow 都会覆盖该 DLL，需要重新执行上面的脚本。
