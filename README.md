@@ -1,6 +1,6 @@
 # WeFlow Community Patch
 
-面向 WeFlow 5.0.0 的社区热修复，解决 2026 年 7 月底后聊天记录导出失效、私聊页面首次点击“导出”时卡在“正在准备导出模块”，以及兼容导出中的 `Silk 解码失败`。
+面向 WeFlow 5.0.0 的社区热修复，解决 2026 年 10 月 1 日后**启动即报 `-101`（原生库构建过期）**、2026 年 7 月底后聊天记录导出失效、私聊页面首次点击“导出”时卡在“正在准备导出模块”，以及兼容导出中的 `Silk 解码失败`。
 
 > 本仓库不是 WeFlow 官方仓库。补丁基于上游项目 [hicccc77/WeFlow](https://github.com/hicccc77/WeFlow)，仅用于非商业的社区修复与交流。
 
@@ -19,7 +19,9 @@ Silk 问题的诊断过程与通用经验见 [Electron Worker 中的 Silk WASM �
 
 WeFlow 随包分发的原生库 `resources/resources/wcdb/win32/x64/wcdb_api.dll` 内置**两个硬编码的构建过期开关**（都指向 2026-09-30 23:59:59）。到期后 `InitProtection()` 返回 `-101`、`wcdb_init()` 返回 `-1000`，应用表现为弹窗「WeFlow 启动失败 / 错误码: -101」，数据库完全无法初始化。
 
-该 DLL 是上游提交的预编译产物，`npm run build` 与重装热修包都无法修复。请用仓库中的脚本就地修补（退出 WeFlow 后执行；自动备份、幂等）：
+该 DLL 是上游提交的预编译产物，`npm run build` **无法**修复（重建只会原样打包同一个过期 DLL）。三种修复方式任选其一，都需要先退出 WeFlow。
+
+**方式一：用仓库中的脚本就地修补**（自动备份、可重复执行）：
 
 ```powershell
 .\scripts\Patch-WcdbApiExpiry.ps1 -DllPath "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
@@ -42,20 +44,20 @@ Copy-Item -LiteralPath .\binaries\wcdb_api.dll -Destination $dll -Force
 适用环境：Windows 10/11 x64、WeFlow 5.0.0、微信 4.x。
 
 1. 退出 WeFlow，包括系统托盘中的后台进程。
-2. 从 [最新 Release](../../releases/latest) 下载 `WeFlow-5.0.0-Community-Hotfix.2-Setup.exe`。
+2. 从 [最新 Release](../../releases/latest) 下载 `WeFlow-5.0.0-Community-Hotfix.3-Setup.exe`。
 3. 使用仓库中的校验脚本核对安装包：
 
    ```powershell
-   .\scripts\Verify-Installer.ps1 -Installer "$env:USERPROFILE\Downloads\WeFlow-5.0.0-Community-Hotfix.2-Setup.exe"
+   .\scripts\Verify-Installer.ps1 -Installer "$env:USERPROFILE\Downloads\WeFlow-5.0.0-Community-Hotfix.3-Setup.exe"
    ```
 
 4. 运行安装包，按提示覆盖安装。
-5. 启动后直接进入任意私聊，第一次点击“导出”也应正常打开导出面板。
+5. 启动后数据库应正常打开；进入任意私聊，第一次点击“导出”也应正常打开导出面板。
 
 安装包 SHA-256：
 
 ```text
-CD334F4DF75B8EB2D8473B77198E1992A90D5D01508327EC7B8B38A5B629A7C6
+FBE8D7A2367299145C838215C4733CBCC8D7E4DA8F403D731A9AB5B917520625
 ```
 
 ## 给开发者：应用源码补丁
@@ -95,6 +97,7 @@ npm run build
 - 标准 NSIS 安装包生成成功
 - 原生库过期开关修补后，`InitProtection()` 与 `wcdb_init()` 均返回 `0`（用 `koffi` 直接加载 DLL 验证）
 - 修补后在影子副本与真实安装上分别启动，日志均出现 `open ok handle=1`，且不再出现 `-101` 或 `WCDB 初始化失败`
+- Hotfix 3 安装包内的 `wcdb_api.dll` 已从安装包中解出并核对哈希，确认为修补版
 
 ## Windows Defender 提示
 
@@ -102,7 +105,7 @@ npm run build
 
 ## 隐私与安全
 
-补丁只调整本地导出流程，不会上传聊天记录。本仓库不包含任何聊天数据库、账号目录、解密密钥、本地配置、备份二进制或调试日志。
+补丁只调整本地导出流程，不会上传聊天记录。本仓库不包含任何聊天数据库、账号目录、解密密钥、本地配置或调试日志。仓库内唯一的二进制是 `binaries/wcdb_api.dll`（对上游预编译 DLL 的 6 字节修补版，用途见上，除这 6 字节外与上游完全一致）。
 
 ## 许可证与归属
 

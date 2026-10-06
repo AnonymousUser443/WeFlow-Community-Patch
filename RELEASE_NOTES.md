@@ -26,22 +26,33 @@ SHA-256：
 
 ---
 
-# WeFlow 5.0.0 Community Hotfix 3（脚本补丁，无新安装包）
+# WeFlow 5.0.0 Community Hotfix 3
+
+这是一个面向 Windows x64 的社区热修复安装包，在 Hotfix 2 的基础上修复**原生库构建过期**问题。
 
 ## 修复
 
-- 修复原生库 `wcdb_api.dll` 的构建过期开关：2026-10-01 起 WeFlow 每次启动弹出「WeFlow 启动失败 / 错误码: -101」、数据库无法初始化。仓库新增 `scripts/Patch-WcdbApiExpiry.ps1`，用于就地修补该 DLL 的两个过期开关（`InitProtection()` → `-101`、`wcdb_init()` → `-1000`）。
+- **修复启动即报 `-101`**：WeFlow 随包分发的原生库 `wcdb_api.dll` 内置两个硬编码的构建过期开关（都指向 2026-09-30 23:59:59）。到期后 `InitProtection()` 返回 `-101`、`wcdb_init()` 返回 `-1000`，应用表现为弹窗「WeFlow 启动失败 / 错误码: -101」，数据库完全无法初始化。本安装包内置的 `wcdb_api.dll` 已禁用这两个开关（仅 6 个字节，执行路径与过期前一致）。
+- 包含 Hotfix 2 的全部修复：WeLive 引擎过期后自动回退 WCDB 导出、批量导出不再重复拉起失效引擎、修复私聊首次点击「导出」卡在「正在准备导出模块」、修复兼容导出中语音显示 `Silk 解码失败`。
 
-## 使用
+## 安装
 
-退出 WeFlow（包括托盘进程）后执行：
+退出 WeFlow（包括托盘进程），下载并运行：
 
-```powershell
-.\scripts\Patch-WcdbApiExpiry.ps1 -DllPath "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
-```
+`WeFlow-5.0.0-Community-Hotfix.3-Setup.exe`
 
-本版**不提供新的安装包**：Hotfix 2 的安装包依然有效，安装完成后再执行上面的脚本即可。
+SHA-256：
 
-原理与验证方法见 `docs/NATIVE-EXPIRY-GATE.md`。
+`FBE8D7A2367299145C838215C4733CBCC8D7E4DA8F403D731A9AB5B917520625`
+
+## 不想重装？
+
+现有安装可以只替换一个文件：用 `binaries/wcdb_api.dll`（已修补）覆盖
+
+`%ProgramFiles%\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll`
+
+或运行 `scripts/Patch-WcdbApiExpiry.ps1` 就地修补。
+
+原理、反汇编与验证方法见 `docs/NATIVE-EXPIRY-GATE.md`。
 
 本补丁基于 WeFlow，按 CC BY-NC-SA 4.0 许可作非商业分享。
