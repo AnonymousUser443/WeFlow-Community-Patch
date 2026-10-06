@@ -23,3 +23,25 @@ SHA-256：
 源码用户可下载仓库中的 `patches/weflow-community-hotfix.patch`。
 
 本补丁基于 WeFlow，按 CC BY-NC-SA 4.0 许可作非商业分享。
+
+---
+
+# WeFlow 5.0.0 Community Hotfix 3（脚本补丁，无新安装包）
+
+## 修复
+
+- 修复原生库 `wcdb_api.dll` 的构建过期开关：2026-10-01 起 WeFlow 每次启动弹出「WeFlow 启动失败 / 错误码: -101」、数据库无法初始化。仓库新增 `scripts/Patch-WcdbApiExpiry.ps1`，用于就地修补该 DLL 的两个过期开关（`InitProtection()` → `-101`、`wcdb_init()` → `-1000`）。
+
+## 使用
+
+退出 WeFlow（包括托盘进程）后执行：
+
+```powershell
+.\scripts\Patch-WcdbApiExpiry.ps1 -DllPath "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
+```
+
+本版**不提供新的安装包**：Hotfix 2 的安装包依然有效，安装完成后再执行上面的脚本即可。
+
+原理与验证方法见 `docs/NATIVE-EXPIRY-GATE.md`。
+
+本补丁基于 WeFlow，按 CC BY-NC-SA 4.0 许可作非商业分享。

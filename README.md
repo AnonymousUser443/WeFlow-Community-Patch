@@ -15,6 +15,20 @@
 
 Silk 问题的诊断过程与通用经验见 [Electron Worker 中的 Silk WASM 路径排障](docs/SILK-EXPORT-WORKER-PATH.md)。
 
+## 原生库构建过期（启动失败 / 错误码 -101）
+
+WeFlow 随包分发的原生库 `resources/resources/wcdb/win32/x64/wcdb_api.dll` 内置**两个硬编码的构建过期开关**（都指向 2026-09-30 23:59:59）。到期后 `InitProtection()` 返回 `-101`、`wcdb_init()` 返回 `-1000`，应用表现为弹窗「WeFlow 启动失败 / 错误码: -101」，数据库完全无法初始化。
+
+该 DLL 是上游提交的预编译产物，`npm run build` 与重装热修包都无法修复。请用仓库中的脚本就地修补（退出 WeFlow 后执行；自动备份、幂等）：
+
+```powershell
+.\scripts\Patch-WcdbApiExpiry.ps1 -DllPath "$env:ProgramFiles\WeFlow\resources\resources\wcdb\win32\x64\wcdb_api.dll"
+```
+
+原理、验证方法与注意事项见 [原生库构建过期开关的诊断与修补](docs/NATIVE-EXPIRY-GATE.md)。
+
+> 重装、修复安装或升级 WeFlow 都会覆盖该 DLL，需要重新执行上面的脚本。
+
 ## 直接安装（推荐）
 
 适用环境：Windows 10/11 x64、WeFlow 5.0.0、微信 4.x。
@@ -71,6 +85,8 @@ npm run build
 - 20 个真实语音样本均为标准 `#!SILK_V3`，且可由同版 `silk-wasm` 成功解码
 - 打包后的 Worker 使用真实 Electron resources/app 路径，`silk.wasm` 存在于 `app.asar.unpacked`
 - 标准 NSIS 安装包生成成功
+- 原生库过期开关修补后，`InitProtection()` 与 `wcdb_init()` 均返回 `0`（用 `koffi` 直接加载 DLL 验证）
+- 修补后在影子副本与真实安装上分别启动，日志均出现 `open ok handle=1`，且不再出现 `-101` 或 `WCDB 初始化失败`
 
 ## Windows Defender 提示
 
